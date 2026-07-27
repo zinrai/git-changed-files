@@ -1,43 +1,38 @@
 package main
 
 import (
-	"flag"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 )
 
-func run() error {
-	dir := flag.String("dir", ".", "directory to detect changes in")
-	ext := flag.String("ext", "", "filter by file extension (e.g. .json)")
-	max := flag.Int("max", 0, "maximum number of changed files allowed (0 = unlimited)")
-	ref := flag.String("ref", "", "git ref to compare against (required)")
-	flag.Parse()
-
-	if *ref == "" {
-		return fmt.Errorf("-ref is required")
+func run(dir, ext string, max int, ref string) error {
+	base := ref
+	if isNullRef(base) {
+		var err error
+		base, err = emptyTreeHash()
+		if err != nil {
+			return err
+		}
 	}
 
-	cmd := exec.Command("git", "diff", "--name-only", *ref, "HEAD", "--", *dir)
+	cmd := exec.Command("git", "diff", "--name-only", "--diff-filter=d", base, "HEAD", "--", dir)
 	out, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("git diff failed: %w", err)
 	}
 
 	files := splitLines(string(out))
-	files = filterByDirectory(files, *dir)
+	files = filterByDirectory(files, dir)
 
-	if *ext != "" {
-		files = filterByExtension(files, *ext)
+	if ext != "" {
+		files = filterByExtension(files, ext)
 	}
 
-	if len(files) == 0 {
-		return fmt.Errorf("no changed files found in %s", *dir)
-	}
-
-	if *max > 0 && len(files) > *max {
-		return fmt.Errorf("found %d changed files, exceeding the limit of %d\n%s", len(files), *max, strings.Join(files, "\n"))
+	if max > 0 && len(files) > max {
+		return fmt.Errorf("found %d changed files, exceeding the limit of %d\n%s", len(files), max, strings.Join(files, "\n"))
 	}
 
 	for _, f := range files {
@@ -45,6 +40,31 @@ func run() error {
 	}
 
 	return nil
+}
+
+// isNullRef reports whether ref is an all-zeros SHA. Git hooks and workflow
+// engines pass it as the old rev when no comparison base exists, such as on
+// branch creation or force push.
+func isNullRef(ref string) bool {
+	if ref == "" {
+		return false
+	}
+	for _, c := range ref {
+		if c != '0' {
+			return false
+		}
+	}
+	return true
+}
+
+// emptyTreeHash returns the hash of the empty tree for the repository's
+// object format, so a null ref can be diffed as "everything at HEAD".
+func emptyTreeHash() (string, error) {
+	out, err := exec.Command("git", "hash-object", "-t", "tree", os.DevNull).Output()
+	if err != nil {
+		return "", fmt.Errorf("git hash-object failed: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 func filterByDirectory(files []string, dir string) []string {

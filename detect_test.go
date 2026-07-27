@@ -107,6 +107,26 @@ func TestFilterByExtension(t *testing.T) {
 	})
 }
 
+func TestIsNullRef(t *testing.T) {
+	tests := []struct {
+		ref  string
+		want bool
+	}{
+		{"0000000000000000000000000000000000000000", true},
+		{"0000000000000000000000000000000000000000000000000000000000000000", true},
+		{"", false},
+		{"abc1234", false},
+		{"0000a00000000000000000000000000000000000", false},
+		{"HEAD", false},
+	}
+
+	for _, tt := range tests {
+		if got := isNullRef(tt.ref); got != tt.want {
+			t.Errorf("isNullRef(%q) = %v, want %v", tt.ref, got, tt.want)
+		}
+	}
+}
+
 func TestSplitLines(t *testing.T) {
 	t.Run("multiple lines", func(t *testing.T) {
 		result := splitLines("a.json\nb.json\nc.json")
